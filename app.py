@@ -149,9 +149,9 @@ def draw_theory(graph, path=None, edges=None, title=""):
 # -----------------------------------------------------------------------------
 # MAIN APP
 # -----------------------------------------------------------------------------
-st.title("🏙️ HỆ THỐNG DẪN ĐƯỜNG THÔNG MINH TP. PLEIKU")
+st.title("🏙️ ỨNG DỤNG CÁC THUẬT TOÁN CHO HỆ THỐNG DẪN ĐƯỜNG THÔNG MINH TP. PLEIKU")
 
-tab1, tab2 = st.tabs(["📚 PHẦN 1: LÝ THUYẾT ĐỒ THỊ", "🚀 PHẦN 2: BẢN ĐỒ THỰC TẾ (100 ĐIỂM)"])
+tab1, tab2 = st.tabs(["📚 PHẦN 1: LÝ THUYẾT ĐỒ THỊ", "🚀 PHẦN 2: BẢN ĐỒ THỰC TẾ "])
 
 # =============================================================================
 # TAB 1: LÝ THUYẾT
@@ -421,3 +421,4 @@ with tab2:
             folium.PolyLine([valid_locs[end], route_coords[-1]], color="gray", weight=2, dash_array='5, 5').add_to(m)
             
             st_folium(m, width=900, height=600)
+
