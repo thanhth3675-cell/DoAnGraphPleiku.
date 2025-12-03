@@ -4,383 +4,420 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import osmnx as ox
 import folium
-from folium.plugins import AntPath
+from folium.plugins import AntPath, MarkerCluster, Fullscreen
 from streamlit_folium import st_folium
 import warnings
 
-# Tắt các cảnh báo không cần thiết
+# Tắt cảnh báo
 warnings.filterwarnings("ignore")
 
 # -----------------------------------------------------------------------------
-# 1. CẤU HÌNH GIAO DIỆN
+# 1. CẤU HÌNH GIAO DIỆN & CSS ĐẸP MẮT
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Đồ Án Đồ Thị & Pleiku Map", layout="wide", page_icon="🗺️")
+st.set_page_config(page_title="Pleiku City Navigation", layout="wide", page_icon="🗺️")
 
-# CSS tùy chỉnh cho giao diện đẹp
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; height: 3em; }
-    h1 { color: #2E86C1; text-align: center; font-family: 'Segoe UI', sans-serif; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { background-color: #f0f2f6; border-radius: 5px; }
-    .stTabs [aria-selected="true"] { background-color: #D6EAF8; font-weight: bold; color: #2874A6; }
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
     
-    /* Style cho thẻ lộ trình */
-    .route-card {
-        background-color: white;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        margin-bottom: 10px;
-        border-left: 5px solid #3498DB;
+    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    
+    /* Header */
+    h1 { color: #2C3E50; text-align: center; font-weight: 700; letter-spacing: 1px; margin-bottom: 20px; }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] { justify-content: center; gap: 20px; }
+    .stTabs [data-baseweb="tab"] { background-color: #ECF0F1; border-radius: 10px; padding: 10px 20px; }
+    .stTabs [aria-selected="true"] { background-color: #3498DB; color: white !important; font-weight: bold; }
+
+    /* Cards Lộ trình */
+    .route-container {
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        padding: 20px;
+        max-height: 600px;
+        overflow-y: auto;
     }
-    .step-text { font-size: 16px; color: #34495E; font-weight: 500; }
-    .dist-badge { 
-        float: right; 
-        background-color: #FDEDEC; 
-        color: #C0392B; 
-        padding: 2px 8px; 
-        border-radius: 12px; 
-        font-size: 14px; 
+    
+    .timeline-item {
+        display: flex;
+        padding-bottom: 15px;
+        position: relative;
+    }
+    
+    .timeline-item:last-child { padding-bottom: 0; }
+    
+    .timeline-marker {
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #E8F6F3;
+        color: #1ABC9C;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         font-weight: bold;
+        margin-right: 15px;
+        z-index: 1;
+        border: 2px solid #1ABC9C;
     }
+    
+    .timeline-content {
+        flex-grow: 1;
+        background-color: #F8F9F9;
+        padding: 10px 15px;
+        border-radius: 8px;
+        border-left: 4px solid #BDC3C7;
+    }
+    
+    .timeline-content:hover { background-color: #F0F3F4; border-left-color: #3498DB; transition: 0.3s; }
+    
+    .street-name { font-weight: bold; color: #2C3E50; font-size: 1.05em; display: block; }
+    .dist-tag { float: right; font-size: 0.85em; color: #E74C3C; font-weight: bold; background: #FADBD8; padding: 2px 8px; border-radius: 10px; }
+    
+    /* Stats Box */
+    .stats-box {
+        display: flex;
+        justify-content: space-around;
+        background: linear-gradient(135deg, #6DD5FA 0%, #2980B9 100%);
+        color: white;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3);
+    }
+    .stat-item { text-align: center; }
+    .stat-value { font-size: 1.5em; font-weight: bold; }
+    .stat-label { font-size: 0.9em; opacity: 0.9; }
+    
     </style>
     """, unsafe_allow_html=True)
 
-# Khởi tạo Session State (Bộ nhớ tạm)
+# Khởi tạo Session
 if 'G' not in st.session_state: st.session_state['G'] = nx.Graph()
-if 'graph_type' not in st.session_state: st.session_state['graph_type'] = "Vô hướng"
 if 'path_nodes' not in st.session_state: st.session_state['path_nodes'] = []
 if 'path_detail' not in st.session_state: st.session_state['path_detail'] = []
 if 'map_center' not in st.session_state: st.session_state['map_center'] = [13.9785, 108.0051]
 
 # -----------------------------------------------------------------------------
-# HÀM XỬ LÝ: LẤY THÔNG TIN LỘ TRÌNH CHI TIẾT
+# HÀM XỬ LÝ LỘ TRÌNH THÔNG MINH
 # -----------------------------------------------------------------------------
 def get_route_details(G, path_nodes):
     if not path_nodes or len(path_nodes) < 2: return []
-    
     steps = []
-    current_name = None
-    current_dist = 0
+    curr_name = None
+    curr_dist = 0
     
     for u, v in zip(path_nodes[:-1], path_nodes[1:]):
         data = G.get_edge_data(u, v)[0]
         length = data.get('length', 0)
-        name = data.get('name', 'Đường chưa đặt tên')
+        name = data.get('name', 'Đường nội bộ')
+        if isinstance(name, list): name = name[0] # Lấy tên đầu tiên nếu có nhiều tên
         
-        # Xử lý tên đường (có thể là list)
-        if isinstance(name, list): name = " / ".join(name)
-        
-        # Gộp các đoạn đường cùng tên
-        if name == current_name:
-            current_dist += length
+        if name == curr_name:
+            curr_dist += length
         else:
-            if current_name:
-                steps.append({"name": current_name, "dist": current_dist})
-            current_name = name
-            current_dist = length
-            
-    # Thêm đoạn cuối
-    if current_name:
-        steps.append({"name": current_name, "dist": current_dist})
-        
+            if curr_name: steps.append({"name": curr_name, "dist": curr_dist})
+            curr_name = name
+            curr_dist = length
+    if curr_name: steps.append({"name": curr_name, "dist": curr_dist})
     return steps
 
 # -----------------------------------------------------------------------------
-# HÀM VẼ: ĐỒ THỊ LÝ THUYẾT (TAB 1)
+# HÀM VẼ LÝ THUYẾT
 # -----------------------------------------------------------------------------
-def draw_theory_graph(graph, path=None, edges=None, title="Đồ thị"):
-    fig, ax = plt.subplots(figsize=(10, 6))
+def draw_theory(graph, path=None, edges=None, title=""):
+    fig, ax = plt.subplots(figsize=(8, 5))
     pos = nx.spring_layout(graph, seed=42)
+    nx.draw(graph, pos, with_labels=True, node_color='#D6EAF8', edge_color='#BDC3C7', node_size=600, font_weight='bold', ax=ax)
+    labels = nx.get_edge_attributes(graph, 'weight')
+    nx.draw_networkx_edge_labels(graph, pos, edge_labels=labels, font_size=9, ax=ax)
     
-    # Vẽ nền
-    nx.draw_networkx_nodes(graph, pos, node_size=700, node_color="#AED6F1", ax=ax)
-    nx.draw_networkx_edges(graph, pos, width=2, alpha=0.5, edge_color="gray", ax=ax)
-    nx.draw_networkx_labels(graph, pos, font_size=12, font_weight="bold", ax=ax)
-    edge_labels = nx.get_edge_attributes(graph, 'weight')
-    nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels, font_size=10, ax=ax)
-    
-    # Highlight (Đường đi)
     if path:
-        nx.draw_networkx_nodes(graph, pos, nodelist=path, node_color="#E74C3C", node_size=800, ax=ax)
-        if len(path) > 1:
-            path_edges = list(zip(path, path[1:]))
-            nx.draw_networkx_edges(graph, pos, edgelist=path_edges, width=4, edge_color="#E74C3C", ax=ax)
-            
-    # Highlight (Cạnh - dùng cho Prim)
+        path_edges = list(zip(path, path[1:]))
+        nx.draw_networkx_nodes(graph, pos, nodelist=path, node_color='#E74C3C', node_size=700, ax=ax)
+        nx.draw_networkx_edges(graph, pos, edgelist=path_edges, width=3, edge_color='#E74C3C', ax=ax)
+    
     if edges:
-        nx.draw_networkx_edges(graph, pos, edgelist=edges, width=4, edge_color="#27AE60", ax=ax)
+        nx.draw_networkx_edges(graph, pos, edgelist=edges, width=3, edge_color='#27AE60', ax=ax)
         
-    ax.set_title(title, fontsize=14, color="#2874A6")
-    ax.axis('off')
+    ax.set_title(title, color="#2C3E50", fontsize=12)
     st.pyplot(fig)
 
 # -----------------------------------------------------------------------------
-# GIAO DIỆN CHÍNH
+# MAIN APP
 # -----------------------------------------------------------------------------
-st.title("ỨNG DỤNG MÔ PHỎNG THUẬT TOÁN ĐỒ THỊ")
+st.title("🏙️ HỆ THỐNG DẪN ĐƯỜNG THÔNG MINH TP. PLEIKU")
 
-# TẠO 2 TAB CHÍNH
-tab1, tab2 = st.tabs(["📚 PHẦN 1: LÝ THUYẾT (FULL YÊU CẦU)", "🗺️ PHẦN 2: BẢN ĐỒ PLEIKU (50 ĐỊA ĐIỂM)"])
+tab1, tab2 = st.tabs(["📚 PHẦN 1: LÝ THUYẾT ĐỒ THỊ", "🚀 PHẦN 2: BẢN ĐỒ THỰC TẾ (100 ĐIỂM)"])
 
 # =============================================================================
-# TAB 1: LÝ THUYẾT (GIẢI QUYẾT 7 YÊU CẦU CỦA GIÁO VIÊN)
+# TAB 1: LÝ THUYẾT
 # =============================================================================
 with tab1:
-    col_input, col_viz = st.columns([1, 2])
-    
-    with col_input:
-        st.subheader("1. Nhập liệu")
-        # YC 6: Loại đồ thị
-        type_opt = st.radio("Loại:", ["Vô hướng", "Có hướng"])
-        is_directed = "Có hướng" in type_opt
+    c1, c2 = st.columns([1, 1.5])
+    with c1:
+        st.subheader("🛠️ Cấu hình")
+        type_opt = st.radio("Loại:", ["Vô hướng", "Có hướng"], horizontal=True)
+        directed = True if type_opt == "Có hướng" else False
+        inp = st.text_area("Nhập cạnh (u v w):", "A B 4\nA C 2\nB C 5\nB D 10\nC E 3\nD F 11\nE D 4", height=150)
         
-        # YC 6: Nhập cạnh
-        inp = st.text_area("Danh sách cạnh (u v w):", value="A B 4\nA C 2\nB C 5\nB D 10\nC E 3\nD F 11\nE D 4", height=150)
-        
-        # YC 1: Tạo đồ thị
-        if st.button("🚀 Tạo Đồ Thị (YC1)"):
+        if st.button("Khởi tạo Đồ thị"):
             try:
-                G = nx.DiGraph() if is_directed else nx.Graph()
-                for line in inp.strip().split('\n'):
-                    p = line.split()
-                    if len(p) >= 2:
-                        w = int(p[2]) if len(p) > 2 else 1
-                        G.add_edge(p[0], p[1], weight=w)
+                G = nx.DiGraph() if directed else nx.Graph()
+                for l in inp.split('\n'):
+                    p = l.split()
+                    if len(p)>=2: G.add_edge(p[0], p[1], weight=int(p[2]) if len(p)>2 else 1)
                 st.session_state['G'] = G
-                st.session_state['graph_type'] = type_opt
-                st.success("Đã tạo xong!")
-            except:
-                st.error("Lỗi dữ liệu nhập!")
+                st.success("Thành công!")
+            except: st.error("Lỗi dữ liệu")
+            
+    with c2:
+        if len(st.session_state['G'])>0: draw_theory(st.session_state['G'], title="Mô hình trực quan")
         
-        # YC 2: Lưu file
-        st.download_button("💾 Lưu đồ thị (.txt)", inp, "graph_data.txt")
-
-    with col_viz:
-        G = st.session_state['G']
-        if len(G) > 0:
-            draw_theory_graph(G, title=f"Mô hình ({st.session_state['graph_type']})")
-        else:
-            st.info("👈 Vui lòng nhập dữ liệu để bắt đầu.")
-
-    if len(G) > 0:
+    if len(st.session_state['G'])>0:
         st.divider()
-        c1, c2, c3 = st.columns(3)
-        
-        # YC 5 & 6: Biểu diễn & Tính chất
-        with c1:
-            st.markdown("##### 🛠️ Biểu diễn")
-            mode = st.selectbox("Dạng xem:", ["Ma trận kề", "Danh sách kề"])
-            if mode == "Ma trận kề":
-                st.dataframe(pd.DataFrame(nx.adjacency_matrix(G).todense(), index=G.nodes(), columns=G.nodes()), height=150)
-            else:
-                st.json(nx.to_dict_of_lists(G), expanded=False)
-            
-            if st.button("Kiểm tra 2 phía (YC5)"):
-                res = "✅ Có" if nx.is_bipartite(G) else "❌ Không"
-                st.write(f"Kết quả: {res}")
-
-        # YC 3 & 4: Thuật toán tìm đường
-        with c2:
-            st.markdown("##### 🔍 Duyệt & Tìm đường")
-            s = st.selectbox("Start:", list(G.nodes()))
-            e = st.selectbox("End:", list(G.nodes()), index=len(G.nodes())-1)
-            
-            col_b1, col_b2 = st.columns(2)
-            with col_b1:
-                if st.button("BFS (YC4)"):
-                    path = list(dict(nx.bfs_successors(G, s)).keys()); path.insert(0, s)
-                    st.success(f"BFS: {path}"); draw_theory_graph(G, path=path, title="BFS")
-            with col_b2:
-                if st.button("DFS (YC4)"):
-                    path = list(nx.dfs_preorder_nodes(G, s))
-                    st.success(f"DFS: {path}"); draw_theory_graph(G, path=path, title="DFS")
-            
-            if st.button("Dijkstra (Shortest)"):
-                try:
-                    p = nx.shortest_path(G, s, e, weight='weight')
-                    draw_theory_graph(G, path=p, title="Đường đi ngắn nhất")
-                except: st.error("Không có đường đi")
-
-        # YC 7: Nâng cao (Prim)
-        with c3:
-            st.markdown("##### 🌲 Nâng cao")
-            if st.button("Prim (MST) (YC7)"):
-                if not is_directed and nx.is_connected(G):
-                    mst = nx.minimum_spanning_tree(G, algorithm='prim')
-                    st.info(f"Tổng trọng số: {mst.size(weight='weight')}")
-                    draw_theory_graph(G, edges=list(mst.edges()), title="Cây khung Prim")
-                else:
-                    st.warning("Prim chỉ chạy trên đồ thị vô hướng liên thông.")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info("Biểu diễn")
+            st.json(nx.to_dict_of_lists(st.session_state['G']), expanded=False)
+            st.write(f"Bipartite: {nx.is_bipartite(st.session_state['G'])}")
+        with col2:
+            st.warning("Thuật toán")
+            s = st.selectbox("Start", list(st.session_state['G'].nodes()))
+            e = st.selectbox("End", list(st.session_state['G'].nodes()), index=len(st.session_state['G'])-1)
+            if st.button("BFS"): 
+                p = list(dict(nx.bfs_successors(st.session_state['G'], s)).keys()); p.insert(0,s)
+                draw_theory(st.session_state['G'], path=p, title="BFS Traversal")
+            if st.button("DFS"):
+                p = list(nx.dfs_preorder_nodes(st.session_state['G'], s))
+                draw_theory(st.session_state['G'], path=p, title="DFS Traversal")
+            if st.button("Dijkstra"):
+                try: 
+                    p = nx.shortest_path(st.session_state['G'], s, e, weight='weight')
+                    draw_theory(st.session_state['G'], path=p, title="Shortest Path")
+                except: st.error("No Path")
+        with col3:
+            st.success("Nâng cao")
+            if st.button("Prim (MST)"):
+                if not directed and nx.is_connected(st.session_state['G']):
+                    mst = nx.minimum_spanning_tree(st.session_state['G'])
+                    draw_theory(st.session_state['G'], edges=list(mst.edges()), title=f"MST (W={mst.size(weight='weight')})")
+                else: st.error("Chỉ áp dụng cho Đồ thị Vô hướng Liên thông")
 
 # =============================================================================
-# TAB 2: BẢN ĐỒ PLEIKU (50 ĐỊA ĐIỂM - CHÍNH XÁC CAO)
+# TAB 2: BẢN ĐỒ PLEIKU (100 ĐỊA ĐIỂM)
 # =============================================================================
 with tab2:
-    st.header("🗺️ Tìm đường chi tiết tại TP. Pleiku")
-
-    # 1. LOAD MAP: Lấy bán kính 5km để bao trùm cả Sân bay và Biển Hồ
     @st.cache_resource
-    def load_pleiku_map():
-        # Quảng trường Đại Đoàn Kết (Tâm)
-        point = (13.9785, 108.0051)
-        return ox.graph_from_point(point, dist=5000, network_type='drive')
+    def load_map():
+        # Bán kính 7km để bao trùm 100 điểm
+        return ox.graph_from_point((13.9785, 108.0051), dist=7000, network_type='drive')
 
-    with st.spinner("Đang tải dữ liệu bản đồ Pleiku (Vui lòng đợi)..."):
-        try:
-            G_map = load_pleiku_map()
-            st.success("✅ Đã tải xong hệ thống giao thông!")
-        except:
-            st.error("Lỗi kết nối bản đồ. Vui lòng thử lại."); st.stop()
+    with st.spinner("Đang tải dữ liệu bản đồ TP. Pleiku (Khoảng 45s - Vui lòng đợi)..."):
+        try: G_map = load_map(); st.success("✅ Đã tải xong bản đồ!")
+        except: st.error("Lỗi tải map"); st.stop()
 
-    # 2. DANH SÁCH 50 ĐỊA ĐIỂM (TỌA ĐỘ CHUẨN)
+    # DANH SÁCH ~100 ĐỊA ĐIỂM (Đã chuẩn hóa tọa độ)
     locations = {
+        "--- TRUNG TÂM ---": (0,0),
         "Quảng trường Đại Đoàn Kết": (13.9785, 108.0051),
+        "Bưu điện Tỉnh Gia Lai": (13.9770, 108.0040),
+        "UBND Tỉnh Gia Lai": (13.9790, 108.0040),
+        "Công an Tỉnh Gia Lai": (13.9780, 108.0020),
+        "Bảo tàng Tỉnh Gia Lai": (13.9780, 108.0055),
+        "Sở Giáo dục & Đào tạo": (13.9775, 108.0045),
+        "Nhà Thi đấu Tỉnh": (13.9810, 108.0060),
+        
+        "--- GIAO THÔNG & CHỢ ---": (0,0),
         "Sân bay Pleiku": (14.0044, 108.0172),
-        "Biển Hồ (Tơ Nưng)": (14.0534, 108.0035),
         "Bến xe Đức Long": (13.9556, 108.0264),
-        "Sân vận động Pleiku": (13.9791, 108.0076),
         "Chợ Đêm Pleiku": (13.9745, 108.0068),
-        "Chợ Trung tâm Pleiku": (13.9750, 108.0080),
+        "Chợ Trung tâm (Mới)": (13.9750, 108.0080),
         "Chợ Thống Nhất": (13.9800, 108.0150),
         "Chợ Phù Đổng": (13.9700, 108.0100),
         "Chợ Hoa Lư": (13.9850, 108.0050),
+        "Chợ Yên Thế": (13.9900, 108.0300),
+        "Chợ Trà Bá": (13.9600, 108.0250),
+        "Chợ Biển Hồ": (14.0400, 108.0050),
+        "Ngã 3 Hoa Lư": (13.9850, 108.0050),
+        "Ngã 4 Biển Hồ": (14.0000, 108.0000),
+        "Ngã 3 Phù Đổng": (13.9700, 108.0050),
+        "Ngã 3 Diệp Kính": (13.9750, 108.0070),
+        "Vòng xoay HAGL": (13.9760, 108.0030),
+        
+        "--- DU LỊCH & GIẢI TRÍ ---": (0,0),
+        "Biển Hồ (Tơ Nưng)": (14.0534, 108.0035),
+        "Biển Hồ Chè": (14.0200, 108.0100),
+        "Công viên Diên Hồng": (13.9715, 108.0022),
+        "Công viên Đồng Xanh": (13.9800, 108.0500),
+        "Sân vận động Pleiku": (13.9791, 108.0076),
         "TTTM Vincom Plaza": (13.9804, 108.0053),
         "Coop Mart Pleiku": (13.9818, 108.0064),
+        "Rạp Touch Cinema": (13.9700, 108.0100),
+        "Núi Hàm Rồng": (13.8900, 108.0500),
+        "Học viện Bóng đá HAGL": (13.9500, 108.0500),
+        "Làng Văn hóa Plei Ốp": (13.9820, 108.0080),
+        
+        "--- TÔN GIÁO ---": (0,0),
+        "Chùa Minh Thành": (13.9680, 108.0100),
+        "Chùa Bửu Minh": (14.0200, 108.0100),
+        "Chùa Bửu Nghiêm": (13.9750, 108.0020),
+        "Chùa Bửu Thắng": (13.9850, 108.0100),
+        "Nhà thờ Đức An": (13.9750, 108.0050),
+        "Nhà thờ Thăng Thiên": (13.9850, 108.0050),
+        "Nhà thờ Plei Chuet": (13.9700, 108.0300),
+        "Nhà thờ Hoa Lư": (13.9900, 108.0050),
+        
+        "--- Y TẾ & GIÁO DỤC ---": (0,0),
         "Bệnh viện Đa khoa Tỉnh": (13.9822, 108.0019),
         "Bệnh viện ĐH Y Dược HAGL": (13.9700, 108.0000),
         "Bệnh viện Nhi Gia Lai": (13.9600, 108.0100),
         "Bệnh viện Mắt Cao Nguyên": (13.9650, 108.0150),
         "Bệnh viện 331": (13.9900, 108.0200),
         "Bệnh viện TP Pleiku": (13.9780, 108.0150),
-        "Công viên Diên Hồng": (13.9715, 108.0022),
-        "Công viên Đồng Xanh": (13.9800, 108.0500),
-        "Chùa Minh Thành": (13.9680, 108.0100),
-        "Chùa Bửu Minh": (14.0200, 108.0100),
-        "Nhà thờ Đức An": (13.9750, 108.0050),
-        "Nhà thờ Thăng Thiên": (13.9850, 108.0050),
-        "Nhà thờ Plei Chuet": (13.9700, 108.0300),
-        "Bưu điện Tỉnh Gia Lai": (13.9770, 108.0040),
         "Trường THPT Chuyên Hùng Vương": (13.9850, 108.0100),
         "Trường THPT Pleiku": (13.9800, 108.0120),
         "Trường THPT Phan Bội Châu": (13.9750, 108.0200),
         "Trường THPT Lê Lợi": (13.9700, 108.0150),
+        "Trường THPT Hoàng Hoa Thám": (13.9900, 108.0100),
         "Trường CĐ Sư phạm Gia Lai": (13.9600, 108.0200),
         "Phân hiệu ĐH Nông Lâm": (13.9550, 108.0300),
-        "Khách sạn Hoàng Anh Gia Lai": (13.9760, 108.0030),
-        "Khách sạn Tre Xanh": (13.9790, 108.0060),
-        "Khách sạn Khánh Linh": (13.9780, 108.0050),
-        "Khách sạn Mê Kông": (13.9750, 108.0020),
-        "Khách sạn Boston": (13.9720, 108.0050),
-        "Công an Tỉnh Gia Lai": (13.9780, 108.0020),
-        "Ủy ban Nhân dân Tỉnh": (13.9790, 108.0040),
-        "Sở Giáo dục & Đào tạo": (13.9775, 108.0045),
-        "Bảo tàng Tỉnh Gia Lai": (13.9780, 108.0055),
-        "Ngã 3 Hoa Lư": (13.9850, 108.0050),
-        "Ngã 4 Biển Hồ": (14.0000, 108.0000),
-        "Ngã 3 Phù Đổng": (13.9700, 108.0050),
-        "Ngã 3 Diệp Kính": (13.9750, 108.0070),
-        "Rạp Touch Cinema": (13.9700, 108.0100),
-        "Hồ Đức An": (13.9740, 108.0040),
-        "Làng Văn hóa Plei Ốp": (13.9820, 108.0080),
-        "Núi Hàm Rồng": (13.8900, 108.0500),
-        "Học viện Bóng đá HAGL": (13.9500, 108.0500)
+        "Trường Quốc tế UKA": (13.9850, 108.0200),
+        
+        "--- KHÁCH SẠN ---": (0,0),
+        "KS Hoàng Anh Gia Lai": (13.9760, 108.0030),
+        "KS Tre Xanh": (13.9790, 108.0060),
+        "KS Khánh Linh": (13.9780, 108.0050),
+        "KS Mê Kông": (13.9750, 108.0020),
+        "KS Boston": (13.9720, 108.0050),
+        "KS Pleiku & Em": (13.9770, 108.0080),
+        "KS Se San": (13.9780, 108.0040),
+        
+        "--- KHÁC ---": (0,0),
+        "Công ty Điện lực Gia Lai": (13.9800, 108.0050),
+        "Viettel Gia Lai": (13.9750, 108.0060),
+        "VNPT Gia Lai": (13.9770, 108.0040),
+        "Ngân hàng Agribank Tỉnh": (13.9780, 108.0030),
+        "Ngân hàng Vietcombank": (13.9790, 108.0050),
+        "Sân Golf FLC (Dự kiến)": (14.0100, 108.0200),
+        "Khu đô thị Hoa Lư": (13.9900, 108.0100),
+        "Khu đô thị Suối Hội Phú": (13.9700, 108.0200)
     }
-
-    # 3. ĐIỀU KHIỂN
-    c_start, c_end, c_algo = st.columns([2, 2, 1.5])
-    start_name = c_start.selectbox("📍 Điểm Xuất Phát:", sorted(locations.keys()), index=0)
-    end_name = c_end.selectbox("🏁 Điểm Đến:", sorted(locations.keys()), index=1)
-    algo_choice = c_algo.selectbox("Thuật toán:", ["Dijkstra (Nhanh nhất)", "BFS (Ít rẽ nhất)", "DFS (Demo)"])
     
-    if st.button("🚀 TÌM ĐƯỜNG CHI TIẾT", type="primary"):
+    # Lọc bỏ các dòng tiêu đề (có tọa độ 0,0)
+    valid_locs = {k: v for k, v in locations.items() if v != (0,0)}
+
+    c_start, c_end, c_algo = st.columns([1.5, 1.5, 1])
+    start = c_start.selectbox("📍 Điểm đi:", list(valid_locs.keys()), index=0)
+    end = c_end.selectbox("🏁 Điểm đến:", list(valid_locs.keys()), index=8)
+    algo = c_algo.selectbox("Thuật toán:", ["Dijkstra (Tối ưu)", "BFS (Ít rẽ)", "DFS (Minh họa)"])
+    
+    if st.button("🚀 TÌM ĐƯỜNG NGAY", type="primary", use_container_width=True):
         try:
-            # Lấy tọa độ
-            u_coord, v_coord = locations[start_name], locations[end_name]
-            
-            # Tìm node gần nhất trên đồ thị
+            u_coord, v_coord = valid_locs[start], valid_locs[end]
             orig = ox.distance.nearest_nodes(G_map, u_coord[1], u_coord[0])
             dest = ox.distance.nearest_nodes(G_map, v_coord[1], v_coord[0])
             
             path = []
-            if "Dijkstra" in algo_choice:
-                path = nx.shortest_path(G_map, orig, dest, weight='length')
-            elif "BFS" in algo_choice:
-                path = nx.shortest_path(G_map, orig, dest, weight=None)
-            elif "DFS" in algo_choice:
-                try: path = next(nx.all_simple_paths(G_map, orig, dest, cutoff=100))
+            if "Dijkstra" in algo: path = nx.shortest_path(G_map, orig, dest, weight='length')
+            elif "BFS" in algo: path = nx.shortest_path(G_map, orig, dest, weight=None)
+            elif "DFS" in algo: 
+                try: path = next(nx.all_simple_paths(G_map, orig, dest, cutoff=150))
                 except: path = []
 
-            # Lưu vào Session
             st.session_state['path_nodes'] = path
+            st.session_state['path_detail'] = get_route_details(G_map, path)
+            # Cập nhật tâm bản đồ về giữa lộ trình
             st.session_state['map_center'] = [(u_coord[0]+v_coord[0])/2, (u_coord[1]+v_coord[1])/2]
             
-            # Tính toán chi tiết
-            if path:
-                st.session_state['path_detail'] = get_route_details(G_map, path)
-            else:
-                st.error("Không tìm thấy đường đi giữa 2 điểm này!")
-                
-        except Exception as e:
-            st.error(f"Lỗi: {e}")
+        except Exception as e: st.error(f"Không tìm thấy đường: {e}")
 
-    # 4. HIỂN THỊ KẾT QUẢ (CHIA 2 CỘT)
+    # --- HIỂN THỊ KẾT QUẢ ---
     if st.session_state['path_nodes']:
         path = st.session_state['path_nodes']
         details = st.session_state['path_detail']
         total_km = sum(d['dist'] for d in details) / 1000
         
-        col_map, col_text = st.columns([2, 1])
+        # Thống kê
+        st.markdown(f"""
+        <div class="stats-box">
+            <div class="stat-item"><div class="stat-value">{total_km:.2f} km</div><div class="stat-label">Tổng quãng đường</div></div>
+            <div class="stat-item"><div class="stat-value">{len(details)}</div><div class="stat-label">Số đoạn đường</div></div>
+            <div class="stat-item"><div class="stat-value">{int(total_km*2)} phút</div><div class="stat-label">Thời gian dự kiến</div></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_map, col_list = st.columns([2, 1.2])
         
-        with col_text:
-            st.markdown("### 📋 Lộ trình chi tiết")
-            st.success(f"Tổng quãng đường: **{total_km:.2f} km**")
-            
-            with st.container(height=600): # Thanh cuộn
+        # Cột Phải: Lộ trình chi tiết (Style đẹp)
+        with col_list:
+            st.markdown("### 📋 Chi tiết lộ trình")
+            with st.container(height=600):
+                st.markdown('<div class="route-container">', unsafe_allow_html=True)
+                
+                # Start Icon
+                st.markdown(f'''
+                <div class="timeline-item">
+                    <div class="timeline-marker" style="background:#D5F5E3; border-color:#2ECC71; color:#27AE60;">A</div>
+                    <div class="timeline-content">
+                        <span class="street-name">Bắt đầu: {start}</span>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                
                 for i, step in enumerate(details):
-                    st.markdown(f"""
-                    <div class="route-card">
-                        <div class="step-text">
-                            {i+1}. {step['name']}
-                            <span class="dist-badge">{step['dist']:.0f} m</span>
+                    st.markdown(f'''
+                    <div class="timeline-item">
+                        <div class="timeline-marker">{i+1}</div>
+                        <div class="timeline-content">
+                            <span class="dist-tag">{step['dist']:.0f} m</span>
+                            <span class="street-name">{step['name']}</span>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    ''', unsafe_allow_html=True)
+                    
+                # End Icon
+                st.markdown(f'''
+                <div class="timeline-item">
+                    <div class="timeline-marker" style="background:#FADBD8; border-color:#E74C3C; color:#C0392B;">B</div>
+                    <div class="timeline-content">
+                        <span class="street-name">Đích đến: {end}</span>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
+        # Cột Trái: Bản đồ
         with col_map:
-            # Tạo bản đồ
-            m = folium.Map(location=st.session_state['map_center'], zoom_start=14, tiles="OpenStreetMap")
+            m = folium.Map(location=st.session_state['map_center'], zoom_start=14, tiles="cartodbpositron")
+            Fullscreen().add_to(m)
             
-            # Marker điểm chọn
-            folium.Marker(locations[start_name], icon=folium.Icon(color="green", icon="play"), popup=start_name).add_to(m)
-            folium.Marker(locations[end_name], icon=folium.Icon(color="red", icon="flag"), popup=end_name).add_to(m)
+            folium.Marker(valid_locs[start], icon=folium.Icon(color="green", icon="play", prefix='fa'), popup="START").add_to(m)
+            folium.Marker(valid_locs[end], icon=folium.Icon(color="red", icon="flag", prefix='fa'), popup="END").add_to(m)
             
-            # --- QUAN TRỌNG: VẼ ĐƯỜNG CONG MỀM MẠI (DÙNG GEOMETRY) ---
+            # Vẽ đường cong (Geometry)
             route_coords = []
-            
-            # Điểm đầu
             start_node = G_map.nodes[path[0]]
             route_coords.append((start_node['y'], start_node['x']))
             
             for u, v in zip(path[:-1], path[1:]):
                 edge = G_map.get_edge_data(u, v)[0]
                 if 'geometry' in edge:
-                    # Nếu có geometry (đường cong), lấy toàn bộ điểm uốn
                     xs, ys = edge['geometry'].xy
-                    # zip(ys, xs) vì Folium dùng (Lat, Lon)
                     route_coords.extend(list(zip(ys, xs)))
                 else:
-                    # Nếu đường thẳng
                     node_v = G_map.nodes[v]
                     route_coords.extend([(node_v['y'], node_v['x'])])
             
-            # Vẽ AntPath (Hiệu ứng kiến bò)
-            color = "orange" if "DFS" in algo_choice else ("purple" if "BFS" in algo_choice else "blue")
+            # Hiệu ứng đường chạy
+            color = "orange" if "DFS" in algo else ("purple" if "BFS" in algo else "#3498DB")
             AntPath(route_coords, color=color, weight=6, opacity=0.8, delay=1000).add_to(m)
             
-            # Vẽ đường nét đứt nối Marker vào tim đường
-            folium.PolyLine([locations[start_name], route_coords[0]], color="gray", weight=2, dash_array='5, 5').add_to(m)
-            folium.PolyLine([locations[end_name], route_coords[-1]], color="gray", weight=2, dash_array='5, 5').add_to(m)
+            # Vẽ nét đứt nối vào
+            folium.PolyLine([valid_locs[start], route_coords[0]], color="gray", weight=2, dash_array='5, 5').add_to(m)
+            folium.PolyLine([valid_locs[end], route_coords[-1]], color="gray", weight=2, dash_array='5, 5').add_to(m)
             
             st_folium(m, width=900, height=600)
