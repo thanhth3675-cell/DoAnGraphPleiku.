@@ -6,12 +6,9 @@ import osmnx as ox
 import folium
 from streamlit_folium import st_folium
 
-# -----------------------------------------------------------------------------
 # 1. CẤU HÌNH TRANG WEB
-# -----------------------------------------------------------------------------
-st.set_page_config(page_title="Đồ Án Đồ Thị & Pleiku Map", layout="wide", page_icon="🕸️")
+st.set_page_config(page_title="Đồ Án Đồ Thị & Pleiku", layout="wide", page_icon="🕸️")
 
-# CSS để giao diện đẹp hơn
 st.markdown("""
     <style>
     .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; }
@@ -22,27 +19,24 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Khởi tạo Session State
 if 'G' not in st.session_state:
     st.session_state['G'] = nx.Graph()
 if 'graph_type' not in st.session_state:
     st.session_state['graph_type'] = "Vô hướng"
 
-# -----------------------------------------------------------------------------
-# 2. HÀM VẼ ĐỒ THỊ (CHO PHẦN LÝ THUYẾT)
-# -----------------------------------------------------------------------------
+# 2. HÀM VẼ ĐỒ THỊ LÝ THUYẾT
 def draw_graph_theory(graph, path_nodes=None, path_edges=None, title="Đồ thị"):
     fig, ax = plt.subplots(figsize=(10, 6))
     pos = nx.spring_layout(graph, seed=42)
     
-    # Vẽ cơ bản
+    # Vẽ Node & Edge
     nx.draw_networkx_nodes(graph, pos, node_size=700, node_color="#AED6F1", ax=ax)
     nx.draw_networkx_edges(graph, pos, width=2, alpha=0.5, edge_color="gray", ax=ax)
     nx.draw_networkx_labels(graph, pos, font_size=12, font_weight="bold", ax=ax)
     edge_labels = nx.get_edge_attributes(graph, 'weight')
     nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels, font_size=10, ax=ax)
 
-    # Highlight (Tô màu đường đi hoặc Prim)
+    # Highlight đường đi hoặc Prim
     if path_nodes:
         nx.draw_networkx_nodes(graph, pos, nodelist=path_nodes, node_color="#E74C3C", node_size=800, ax=ax)
     if path_edges:
@@ -52,27 +46,29 @@ def draw_graph_theory(graph, path_nodes=None, path_edges=None, title="Đồ th�
     ax.axis('off')
     st.pyplot(fig)
 
-# -----------------------------------------------------------------------------
 # 3. GIAO DIỆN CHÍNH
-# -----------------------------------------------------------------------------
 st.title("🕸️ ỨNG DỤNG MÔ PHỎNG THUẬT TOÁN ĐỒ THỊ")
 st.write("---")
 
-tab1, tab2 = st.tabs(["📚 PHẦN 1: LÝ THUYẾT (FULL YÊU CẦU)", "🗺️ PHẦN 2: BẢN ĐỒ PLEIKU (THỰC TẾ)"])
+# TẠO TAB (Đảm bảo tên biến chính xác)
+tab_theory, tab_map = st.tabs(["📚 PHẦN 1: LÝ THUYẾT (FULL 7 YÊU CẦU)", "🗺️ PHẦN 2: BẢN ĐỒ PLEIKU (THỰC TẾ)"])
 
 # =============================================================================
-# TAB 1: LÝ THUYẾT (ĐÁP ỨNG ĐỦ 7 YÊU CẦU ĐỀ BÀI)
+# TAB 1: LÝ THUYẾT (ĐÁP ỨNG ĐỦ YÊU CẦU ĐỀ BÀI)
 # =============================================================================
-with tab1:
+with tab_theory:
     c1, c2 = st.columns([1, 2])
+    
+    # --- CỘT TRÁI: NHẬP LIỆU ---
     with c1:
-        st.subheader("1. Nhập liệu & Cấu hình")
-        # Chọn loại
+        st.subheader("1. Nhập liệu")
+        # Chọn loại (Vô hướng / Có hướng)
         type_opt = st.radio("Loại đồ thị:", ["Vô hướng", "Có hướng"])
         is_directed = "Có hướng" in type_opt
         
-        # Nhập cạnh
-        inp = st.text_area("Nhập cạnh (u v w):", value="A B 4\nA C 2\nB C 5\nB D 10\nC E 3\nD F 11\nE D 4", height=150)
+        # Nhập danh sách cạnh
+        default_val = "A B 4\nA C 2\nB C 5\nB D 10\nC E 3\nD F 11\nE D 4"
+        inp = st.text_area("Danh sách cạnh (u v w):", value=default_val, height=150)
         
         # Nút Tạo (YC 1)
         if st.button("🚀 Tạo Đồ Thị"):
@@ -89,13 +85,13 @@ with tab1:
         # Nút Lưu (YC 2)
         st.download_button("💾 Lưu đồ thị (.txt)", inp, "graph.txt")
 
+    # --- CỘT PHẢI: VẼ HÌNH ---
     with c2:
-        # Vẽ trực quan (YC 1)
         G = st.session_state['G']
         if G.number_of_nodes() > 0:
             draw_graph_theory(G, title=f"Mô hình Đồ thị ({st.session_state['graph_type']})")
         else:
-            st.info("👈 Hãy nhập dữ liệu bên trái để bắt đầu.")
+            st.info("👈 Hãy nhập dữ liệu để bắt đầu.")
 
     if G.number_of_nodes() > 0:
         st.divider()
@@ -104,7 +100,9 @@ with tab1:
         # --- CỘT 1: BIỂU DIỄN & TÍNH CHẤT ---
         with col_func1:
             st.markdown("##### 🛠️ Biểu diễn & Tính chất")
-            # YC 6: Chuyển đổi
+            
+            # YC 6: Chuyển đổi biểu diễn
+            st.write("**1. Chuyển đổi biểu diễn:**")
             view_mode = st.selectbox("Xem dưới dạng:", ["Ma trận kề", "Danh sách kề"])
             if view_mode == "Ma trận kề":
                 df = pd.DataFrame(nx.adjacency_matrix(G).todense(), index=G.nodes(), columns=G.nodes())
@@ -113,17 +111,18 @@ with tab1:
                 st.json(nx.to_dict_of_lists(G), expanded=False)
             
             # YC 5: Kiểm tra 2 phía
-            if st.button("Kiểm tra 2 phía (Bipartite)"):
+            st.write("**2. Kiểm tra tính chất:**")
+            if st.button("Kiểm tra Đồ thị 2 phía"):
                 if nx.is_bipartite(G): st.success("✅ Là đồ thị 2 phía")
                 else: st.error("❌ Không phải đồ thị 2 phía")
 
         # --- CỘT 2: DUYỆT & TÌM ĐƯỜNG ---
         with col_func2:
             st.markdown("##### 🔍 Duyệt & Tìm đường")
-            start = st.selectbox("Điểm Start:", list(G.nodes()))
-            end = st.selectbox("Điểm End:", list(G.nodes()), index=len(G.nodes())-1)
+            start = st.selectbox("Start:", list(G.nodes()))
+            end = st.selectbox("End:", list(G.nodes()), index=len(G.nodes())-1)
             
-            # YC 4: BFS/DFS
+            # YC 4: BFS & DFS
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("Chạy BFS"):
@@ -138,11 +137,11 @@ with tab1:
                     draw_graph_theory(G, path_nodes=path, title=f"DFS từ {start}")
 
             # YC 3: Đường ngắn nhất
-            if st.button("Tìm đường ngắn nhất (Dijkstra)"):
+            if st.button("Tìm đường ngắn nhất"):
                 try:
                     p = nx.shortest_path(G, start, end, weight='weight')
                     w = nx.shortest_path_length(G, start, end, weight='weight')
-                    st.success(f"Đường đi: {p} (Tổng: {w})")
+                    st.success(f"Dijkstra: {p} (Tổng: {w})")
                     edges = list(zip(p, p[1:]))
                     draw_graph_theory(G, path_nodes=p, path_edges=edges, title=f"Shortest Path: {start}->{end}")
                 except: st.error("Không có đường đi")
@@ -150,9 +149,9 @@ with tab1:
         # --- CỘT 3: NÂNG CAO ---
         with col_func3:
             st.markdown("##### 🌲 Nâng cao")
-            # YC 7: Prim
-            st.write("Thuật toán Prim (MST):")
-            if st.button("Chạy Prim Visualizer"):
+            # YC 7: Prim Visualizer
+            st.write("**Trực quan hóa Prim (MST):**")
+            if st.button("Chạy Prim"):
                 if not is_directed and nx.is_connected(G):
                     mst = nx.minimum_spanning_tree(G, algorithm='prim')
                     st.info(f"Tổng trọng số MST: {mst.size(weight='weight')}")
@@ -161,28 +160,27 @@ with tab1:
                     st.warning("Chỉ áp dụng cho đồ thị vô hướng liên thông.")
 
 # =============================================================================
-# TAB 2: BẢN ĐỒ PLEIKU (FIX LỖI & ĐẸP NHẤT)
+# TAB 2: BẢN ĐỒ PLEIKU (FIX LỖI & HOÀN THIỆN)
 # =============================================================================
 with tab_map:
-    st.header("🗺️ Bản đồ Giao thông TP. Pleiku - Gia Lai")
+    st.header("🗺️ Tìm đường tại TP. Pleiku")
 
-    # 1. LOAD MAP (Set cứng tọa độ Pleiku để không bị lỗi ra map thế giới)
+    # 1. LOAD MAP (Set cứng tọa độ để Map không bị nhảy ra thế giới)
     @st.cache_resource
     def load_pleiku_map():
-        # Tọa độ Quảng trường Đại Đoàn Kết làm tâm
-        # Lấy bán kính 4km (vừa đủ bao quát trung tâm, không quá nặng)
+        # Lấy bán kính 4km từ Quảng trường
         point = (13.9785, 108.0051)
         return ox.graph_from_point(point, dist=4000, network_type='drive')
 
-    with st.spinner("Đang tải dữ liệu đường phố Pleiku (Lần đầu mất ~30s)..."):
+    with st.spinner("Đang tải bản đồ Pleiku..."):
         try:
             G_map = load_pleiku_map()
-            st.success(f"✅ Đã tải xong! Hệ thống gồm {len(G_map.nodes)} giao lộ tại Pleiku.")
+            st.success("✅ Đã tải xong bản đồ!")
         except Exception as e:
             st.error(f"Lỗi tải map: {e}")
             st.stop()
 
-    # 2. DANH SÁCH 30 ĐỊA ĐIỂM CHUẨN TẠI PLEIKU
+    # 2. DANH SÁCH 30 ĐỊA ĐIỂM
     locations = {
         "Quảng trường Đại Đoàn Kết": (13.9785, 108.0051),
         "Sân bay Pleiku": (13.9963, 108.0142),
@@ -194,7 +192,6 @@ with tab_map:
         "Coop Mart Pleiku": (13.9818, 108.0064),
         "Bệnh viện Đa khoa Tỉnh": (13.9822, 108.0019),
         "Bệnh viện ĐH Y Dược HAGL": (13.9700, 108.0000),
-        "Bệnh viện Nhi Gia Lai": (13.9600, 108.0100),
         "Công viên Diên Hồng": (13.9715, 108.0022),
         "Chùa Minh Thành": (13.9680, 108.0100),
         "Nhà thờ Đức An": (13.9750, 108.0050),
@@ -216,69 +213,50 @@ with tab_map:
         "Công viên Đồng Xanh": (13.9800, 108.0500)
     }
 
-    # 3. GIAO DIỆN ĐIỀU KHIỂN
-    col_sel1, col_sel2, col_algo = st.columns([1.5, 1.5, 1.2])
-    with col_sel1:
-        start_name = st.selectbox("📍 Điểm Xuất Phát:", list(locations.keys()), index=0)
-    with col_sel2:
-        end_name = st.selectbox("🏁 Điểm Đến:", list(locations.keys()), index=1)
-    with col_algo:
-        algo_choice = st.selectbox("Thuật toán:", ["Dijkstra (Tối ưu nhất)", "BFS (Ít rẽ nhất)", "DFS (Demo)"])
+    # 3. ĐIỀU KHIỂN
+    c_start, c_end, c_algo = st.columns([1.5, 1.5, 1.2])
+    start_name = c_start.selectbox("📍 Điểm Xuất Phát:", list(locations.keys()), index=0)
+    end_name = c_end.selectbox("🏁 Điểm Đến:", list(locations.keys()), index=1)
+    algo_choice = c_algo.selectbox("Thuật toán:", ["Dijkstra (Tối ưu nhất)", "BFS (Ít rẽ nhất)"])
     
-    btn_run = st.button("🚀 TÌM ĐƯỜNG TRÊN BẢN ĐỒ", type="primary")
+    btn_run = st.button("🚀 TÌM ĐƯỜNG NGAY", type="primary")
 
-    # 4. XỬ LÝ & HIỂN THỊ MAP
-    # Mặc định: Zoom vào Pleiku (kể cả khi chưa tìm đường)
-    map_center = [13.9785, 108.0051] 
-    zoom_level = 14
-    
+    # 4. VẼ MAP
+    map_center = [13.9785, 108.0051] # Mặc định Pleiku
     path = []
     path_color = "blue"
 
     if btn_run:
         try:
-            # Lấy tọa độ
             u_coord = locations[start_name]
             v_coord = locations[end_name]
-
-            # Tìm node gần nhất trên đồ thị (Fix lỗi Scikit-learn tại đây)
+            
+            # Tìm node gần nhất
             orig_node = ox.distance.nearest_nodes(G_map, u_coord[1], u_coord[0])
             dest_node = ox.distance.nearest_nodes(G_map, v_coord[1], v_coord[0])
 
-            # Chạy thuật toán
             if "Dijkstra" in algo_choice:
                 path = nx.shortest_path(G_map, orig_node, dest_node, weight='length')
-                dist = nx.shortest_path_length(G_map, orig_node, dest_node, weight='length')
-                st.success(f"🔵 **Dijkstra:** Quãng đường ngắn nhất: **{dist/1000:.2f} km**")
+                d = nx.shortest_path_length(G_map, orig_node, dest_node, weight='length')
+                st.success(f"🔵 **Dijkstra:** Quãng đường: **{d/1000:.2f} km**")
                 path_color = "blue"
-            
             elif "BFS" in algo_choice:
                 path = nx.shortest_path(G_map, orig_node, dest_node, weight=None)
-                st.info(f"🟣 **BFS:** Đi qua **{len(path)}** đoạn đường (ưu tiên ít rẽ).")
+                st.info(f"🟣 **BFS:** Đi qua **{len(path)}** giao lộ.")
                 path_color = "purple"
-
-            elif "DFS" in algo_choice:
-                try: path = next(nx.all_simple_paths(G_map, orig_node, dest_node, cutoff=60))
-                except: path = []
-                st.warning("🟠 **DFS:** Đã tìm thấy một đường đi (Demo).")
-                path_color = "orange"
-
-            # Cập nhật tâm bản đồ về giữa đoạn đường
-            map_center = [(u_coord[0] + v_coord[0])/2, (u_coord[1] + v_coord[1])/2]
-
+            
+            # Dời tâm bản đồ
+            map_center = [(u_coord[0]+v_coord[0])/2, (u_coord[1]+v_coord[1])/2]
+        
         except Exception as e:
             st.error(f"Lỗi tìm đường: {e}")
 
-    # Vẽ Map Folium
-    m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="OpenStreetMap")
-    
-    # Đánh dấu 2 điểm
-    folium.Marker(locations[start_name], popup=start_name, icon=folium.Icon(color="green", icon="play")).add_to(m)
-    folium.Marker(locations[end_name], popup=end_name, icon=folium.Icon(color="red", icon="flag")).add_to(m)
+    # Hiển thị
+    m = folium.Map(location=map_center, zoom_start=14, tiles="OpenStreetMap")
+    folium.Marker(locations[start_name], icon=folium.Icon(color="green", icon="play"), popup=start_name).add_to(m)
+    folium.Marker(locations[end_name], icon=folium.Icon(color="red", icon="flag"), popup=end_name).add_to(m)
 
-    # Vẽ đường (Nếu có) - Dùng hàm chuẩn của OSMnx 1.9.4
     if path:
         ox.plot_route_folium(G_map, path, m, color=path_color, weight=5, opacity=0.8)
 
-    # Hiển thị (Width 100% để đẹp)
-    st_folium(m, width=1200, height=600)
+    st_folium(m, width=1000, height=500)
