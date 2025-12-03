@@ -322,4 +322,5 @@ with tab_map:
             st.error(f"Lỗi: {e}")
 
     # Hiển thị Map
-    st_folium(m, width=1400, height=600)
+    st_folium(m, width=1000, height=500)
+
