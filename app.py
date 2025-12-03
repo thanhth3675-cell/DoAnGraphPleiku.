@@ -100,6 +100,7 @@ if 'G' not in st.session_state: st.session_state['G'] = nx.Graph()
 if 'path_nodes' not in st.session_state: st.session_state['path_nodes'] = []
 if 'path_detail' not in st.session_state: st.session_state['path_detail'] = []
 if 'map_center' not in st.session_state: st.session_state['map_center'] = [13.9785, 108.0051]
+if 'mst_edges' not in st.session_state: st.session_state['mst_edges'] = [] # Lưu kết quả Prim/Kruskal
 
 # -----------------------------------------------------------------------------
 # HÀM XỬ LÝ LỘ TRÌNH THÔNG MINH
@@ -200,12 +201,21 @@ with tab1:
                     draw_theory(st.session_state['G'], path=p, title="Shortest Path")
                 except: st.error("No Path")
         with col3:
-            st.success("Nâng cao")
-            if st.button("Prim (MST)"):
-                if not directed and nx.is_connected(st.session_state['G']):
-                    mst = nx.minimum_spanning_tree(st.session_state['G'])
-                    draw_theory(st.session_state['G'], edges=list(mst.edges()), title=f"MST (W={mst.size(weight='weight')})")
-                else: st.error("Chỉ áp dụng cho Đồ thị Vô hướng Liên thông")
+            st.success("Nâng cao (Cây khung)")
+            # CHIA LÀM 2 CỘT CHO PRIM VÀ KRUSKAL
+            ck1, ck2 = st.columns(2)
+            with ck1:
+                if st.button("Prim"):
+                    if not directed and nx.is_connected(st.session_state['G']):
+                        mst = nx.minimum_spanning_tree(st.session_state['G'], algorithm='prim')
+                        draw_theory(st.session_state['G'], edges=list(mst.edges()), title=f"Prim MST (W={mst.size(weight='weight')})")
+                    else: st.error("Lỗi: Đồ thị phải vô hướng & liên thông")
+            with ck2:
+                if st.button("Kruskal"): # <-- ĐÃ THÊM KRUSKAL
+                    if not directed and nx.is_connected(st.session_state['G']):
+                        mst = nx.minimum_spanning_tree(st.session_state['G'], algorithm='kruskal')
+                        draw_theory(st.session_state['G'], edges=list(mst.edges()), title=f"Kruskal MST (W={mst.size(weight='weight')})")
+                    else: st.error("Lỗi: Đồ thị phải vô hướng & liên thông")
 
 # =============================================================================
 # TAB 2: BẢN ĐỒ PLEIKU (100 ĐỊA ĐIỂM)
@@ -315,7 +325,22 @@ with tab2:
     end = c_end.selectbox("🏁 Điểm đến:", list(valid_locs.keys()), index=8)
     algo = c_algo.selectbox("Thuật toán:", ["Dijkstra (Tối ưu)", "BFS (Ít rẽ)", "DFS (Minh họa)"])
     
-    if st.button("🚀 TÌM ĐƯỜNG NGAY", type="primary", use_container_width=True):
+    st.divider() # Kẻ ngang phân cách
+    
+    # CHIA LÀM 2 CỘT NÚT BẤM (TÌM ĐƯỜNG & QUY HOẠCH)
+    col_btn_path, col_btn_plan = st.columns([1, 1])
+    
+    with col_btn_path:
+        btn_find = st.button("🚀 TÌM ĐƯỜNG (A -> B)", type="primary", use_container_width=True)
+    
+    with col_btn_plan:
+        # SELECT BOX ĐỂ CHỌN PRIM HOẶC KRUSKAL
+        mst_algo_choice = st.selectbox("Thuật toán Quy hoạch:", ["Prim", "Kruskal"], label_visibility="collapsed")
+        btn_mst = st.button(f"🌲 QUY HOẠCH ({mst_algo_choice.upper()})", use_container_width=True)
+
+    # --- LOGIC TÌM ĐƯỜNG (A->B) ---
+    if btn_find:
+        st.session_state['mst_edges'] = [] # Reset MST
         try:
             u_coord, v_coord = valid_locs[start], valid_locs[end]
             orig = ox.distance.nearest_nodes(G_map, u_coord[1], u_coord[0])
@@ -330,10 +355,36 @@ with tab2:
 
             st.session_state['path_nodes'] = path
             st.session_state['path_detail'] = get_route_details(G_map, path)
-            # Cập nhật tâm bản đồ về giữa lộ trình
             st.session_state['map_center'] = [(u_coord[0]+v_coord[0])/2, (u_coord[1]+v_coord[1])/2]
             
         except Exception as e: st.error(f"Không tìm thấy đường: {e}")
+
+    # --- LOGIC QUY HOẠCH (MST - PRIM/KRUSKAL) ---
+    if btn_mst:
+        st.session_state['path_nodes'] = [] # Reset Tìm đường
+        try:
+            with st.spinner(f"Đang chạy thuật toán {mst_algo_choice} để nối mạng lưới trung tâm..."):
+                # Lấy đồ thị con (Bán kính 2km) để chạy nhanh
+                center_node = ox.distance.nearest_nodes(G_map, 108.0051, 13.9785)
+                subgraph = nx.ego_graph(G_map, center_node, radius=2000, distance='length')
+                
+                # CHỌN THUẬT TOÁN DỰA TRÊN SELECTBOX
+                algo_key = 'prim' if mst_algo_choice == 'Prim' else 'kruskal'
+                mst = nx.minimum_spanning_tree(subgraph.to_undirected(), weight='length', algorithm=algo_key)
+                
+                edges_coords = []
+                for u, v, data in mst.edges(data=True):
+                    if 'geometry' in data:
+                        xs, ys = data['geometry'].xy
+                        edges_coords.append(list(zip(ys, xs)))
+                    else:
+                        u_node, v_node = G_map.nodes[u], G_map.nodes[v]
+                        edges_coords.append([(u_node['y'], u_node['x']), (v_node['y'], v_node['x'])])
+                
+                st.session_state['mst_edges'] = edges_coords
+                st.session_state['map_center'] = [13.9785, 108.0051]
+                st.success(f"Đã quy hoạch xong bằng {mst_algo_choice}! Tổng chiều dài cáp: {mst.size(weight='length')/1000:.2f} km")
+        except Exception as e: st.error(f"Lỗi thuật toán: {e}")
 
     # --- HIỂN THỊ KẾT QUẢ ---
     if st.session_state['path_nodes']:
@@ -341,7 +392,6 @@ with tab2:
         details = st.session_state['path_detail']
         total_km = sum(d['dist'] for d in details) / 1000
         
-        # Thống kê
         st.markdown(f"""
         <div class="stats-box">
             <div class="stat-item"><div class="stat-value">{total_km:.2f} km</div><div class="stat-label">Tổng quãng đường</div></div>
@@ -352,19 +402,14 @@ with tab2:
 
         col_map, col_list = st.columns([2, 1.2])
         
-        # Cột Phải: Lộ trình chi tiết (Style đẹp)
         with col_list:
             st.markdown("### 📋 Chi tiết lộ trình")
             with st.container(height=600):
                 st.markdown('<div class="route-container">', unsafe_allow_html=True)
-                
-                # Start Icon
                 st.markdown(f'''
                 <div class="timeline-item">
                     <div class="timeline-marker" style="background:#D5F5E3; border-color:#2ECC71; color:#27AE60;">A</div>
-                    <div class="timeline-content">
-                        <span class="street-name">Bắt đầu: {start}</span>
-                    </div>
+                    <div class="timeline-content"><span class="street-name">Bắt đầu: {start}</span></div>
                 </div>
                 ''', unsafe_allow_html=True)
                 
@@ -379,18 +424,14 @@ with tab2:
                     </div>
                     ''', unsafe_allow_html=True)
                     
-                # End Icon
                 st.markdown(f'''
                 <div class="timeline-item">
                     <div class="timeline-marker" style="background:#FADBD8; border-color:#E74C3C; color:#C0392B;">B</div>
-                    <div class="timeline-content">
-                        <span class="street-name">Đích đến: {end}</span>
-                    </div>
+                    <div class="timeline-content"><span class="street-name">Đích đến: {end}</span></div>
                 </div>
                 ''', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
-        # Cột Trái: Bản đồ
         with col_map:
             m = folium.Map(location=st.session_state['map_center'], zoom_start=14, tiles="cartodbpositron")
             Fullscreen().add_to(m)
@@ -398,7 +439,6 @@ with tab2:
             folium.Marker(valid_locs[start], icon=folium.Icon(color="green", icon="play", prefix='fa'), popup="START").add_to(m)
             folium.Marker(valid_locs[end], icon=folium.Icon(color="red", icon="flag", prefix='fa'), popup="END").add_to(m)
             
-            # Vẽ đường cong (Geometry)
             route_coords = []
             start_node = G_map.nodes[path[0]]
             route_coords.append((start_node['y'], start_node['x']))
@@ -412,13 +452,25 @@ with tab2:
                     node_v = G_map.nodes[v]
                     route_coords.extend([(node_v['y'], node_v['x'])])
             
-            # Hiệu ứng đường chạy
             color = "orange" if "DFS" in algo else ("purple" if "BFS" in algo else "#3498DB")
             AntPath(route_coords, color=color, weight=6, opacity=0.8, delay=1000).add_to(m)
             
-            # Vẽ nét đứt nối vào
             folium.PolyLine([valid_locs[start], route_coords[0]], color="gray", weight=2, dash_array='5, 5').add_to(m)
             folium.PolyLine([valid_locs[end], route_coords[-1]], color="gray", weight=2, dash_array='5, 5').add_to(m)
             
             st_folium(m, width=900, height=600)
 
+    # --- HIỂN THỊ MST (PRIM/KRUSKAL) ---
+    elif st.session_state['mst_edges']:
+        m = folium.Map(location=st.session_state['map_center'], zoom_start=14, tiles="cartodbpositron")
+        Fullscreen().add_to(m)
+        
+        for edge_coords in st.session_state['mst_edges']:
+            folium.PolyLine(edge_coords, color="#27AE60", weight=3, opacity=0.7).add_to(m)
+            
+        st_folium(m, width=1200, height=600)
+    
+    # --- MẶC ĐỊNH ---
+    else:
+        m = folium.Map(location=[13.9785, 108.0051], zoom_start=14, tiles="cartodbpositron")
+        st_folium(m, width=1200, height=600)
