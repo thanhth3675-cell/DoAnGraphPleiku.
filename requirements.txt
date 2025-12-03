@@ -7,3 +7,4 @@ scipy
 osmnx
 folium
 streamlit-folium
+scikit-learn
