@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import osmnx as ox
 import folium
-from folium.plugins import AntPath, MarkerCluster
+from folium.plugins import AntPath
 from streamlit_folium import st_folium
 import warnings
 
@@ -34,7 +34,6 @@ st.markdown("""
         justify-content: space-between;
         align-items: center;
     }
-    .route-step:hover { background-color: #F4F6F7; }
     .step-icon { font-size: 1.2em; margin-right: 10px; color: #3498DB; }
     .step-name { font-weight: bold; color: #2C3E50; }
     .step-dist { font-weight: bold; color: #E74C3C; font-size: 0.9em; background: #FDEDEC; padding: 4px 8px; border-radius: 10px; }
@@ -97,6 +96,8 @@ def draw_graph_theory(graph, path_nodes=None, path_edges=None, title="Đồ th�
 # GIAO DIỆN CHÍNH
 # -----------------------------------------------------------------------------
 st.title("ỨNG DỤNG MÔ PHỎNG THUẬT TOÁN ĐỒ THỊ")
+
+# TẠO TAB (SỬA LỖI TÊN BIẾN Ở ĐÂY)
 tab1, tab2 = st.tabs(["📚 PHẦN 1: LÝ THUYẾT (FULL 7 YÊU CẦU)", "🗺️ PHẦN 2: BẢN ĐỒ PLEIKU (50 ĐỊA ĐIỂM)"])
 
 # --- TAB 1: LÝ THUYẾT ---
@@ -156,20 +157,19 @@ with tab1:
                     draw_graph_theory(G,path_edges=list(mst.edges()),title="MST Prim")
                 else: st.warning("Chỉ chạy trên đồ thị vô hướng liên thông.")
 
-# --- TAB 2: BẢN ĐỒ PLEIKU (50 ĐỊA ĐIỂM) ---
-with tab_map:
+# --- TAB 2: BẢN ĐỒ PLEIKU (ĐÃ SỬA LỖI NAME ERROR) ---
+with tab2: # <--- Đã sửa thành tab2
     st.header("🗺️ Tìm đường chi tiết tại TP. Pleiku")
 
     @st.cache_resource
     def load_pleiku_map():
-        # Bán kính 4km đủ bao phủ 50 điểm trung tâm
         return ox.graph_from_point((13.9785, 108.0051), dist=4000, network_type='drive')
 
     with st.spinner("Đang tải dữ liệu bản đồ Pleiku..."):
         try: G_map = load_pleiku_map(); st.success("✅ Đã tải xong hệ thống giao thông!")
         except: st.error("Lỗi kết nối bản đồ"); st.stop()
 
-    # DANH SÁCH 50 ĐỊA ĐIỂM CÓ THẬT TẠI PLEIKU
+    # DANH SÁCH 50 ĐỊA ĐIỂM
     locations = {
         "Quảng trường Đại Đoàn Kết": (13.9785, 108.0051),
         "Sân bay Pleiku": (13.9963, 108.0142),
@@ -223,7 +223,6 @@ with tab_map:
         "Học viện Bóng đá HAGL": (13.9500, 108.0500)
     }
 
-    # ĐIỀU KHIỂN
     c1, c2, c3 = st.columns([2, 2, 1.5])
     start_name = c1.selectbox("📍 Điểm Xuất Phát:", sorted(locations.keys()), index=0)
     end_name = c2.selectbox("🏁 Điểm Đến:", sorted(locations.keys()), index=1)
@@ -279,7 +278,7 @@ with tab_map:
             folium.Marker(locations[start_name], icon=folium.Icon(color="green", icon="play"), popup=start_name).add_to(m)
             folium.Marker(locations[end_name], icon=folium.Icon(color="red", icon="flag"), popup=end_name).add_to(m)
             
-            # Vẽ AntPath (Hiệu ứng kiến bò đẹp)
+            # Vẽ AntPath
             route_coords = [(G_map.nodes[n]['y'], G_map.nodes[n]['x']) for n in path]
             color = "orange" if "DFS" in algo_choice else ("purple" if "BFS" in algo_choice else "blue")
             AntPath(route_coords, color=color, weight=6, opacity=0.8, delay=1000, pulse_color='#FFFFFF').add_to(m)
